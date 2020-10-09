@@ -1,72 +1,66 @@
-version: "3.6"
+version: "3"
 
 services:
 
   mysql:
-    image: mysql:5.7.22
-    container_name: fradmin-mysql
+    image: mysql:5.7
+    ports:
+      - 3306:3306
     volumes:
-     - ./mysql/srv/conf.d:/etc/mysql/conf.d
-     - ./mysql/srv/initdb.d:/docker-entrypoint-initdb.d
-     - ./mysql/srv/data:/var/lib/mysql
+      - ./mysql/srv/conf.d:/etc/mysql/conf.d
+      - ./mysql/srv/initdb.d:/docker-entrypoint-initdb.d
+      - ${MYSQL_VOLUME:-mysql-volume}:/var/lib/mysql:Z
+    networks:
+      - backend
     environment:
-      MYSQL_ROOT_PASSWORD: password
-    restart: always
+      - MYSQL_USER
+      - MYSQL_PASSWORD
+      - MYSQL_DATABASE
+      - MYSQL_ROOT_PASSWORD=${MYSQL_PASSWORD}
 
-
-  nginx:
-    image: nginx
-    container_name: fradmin-nginx
+  freeradius:
+    image: zentekmx/freeradius
+    ports:
+      - 1812:1812/udp
+      - 1813:1813/udp
+    links:
+      - mysql
     depends_on:
       - mysql
-      - php
-    volumes:
-     - "./web/src:/var/www/html"
-     - "./web/conf.d:/etc/nginx/conf.d"
-    ports:
-      - "80:80"
-    restart: always
+    networks:
+      - backend
+    environment:
+      - DB_HOST=mysql
+      - DB_NAME=${MYSQL_DATABASE}
+      - DB_USER=${MYSQL_USER}
+      - DB_PASS=${MYSQL_PASSWORD}
+      - DB_PORT=${MYSQL_PORT}
+      - RADIUS_KEY
 
   php:
     build:
-      context: ./php
-    container_name: fradmin-php
-    restart: always
-    volumes:
-      - "./web/src:/var/www/html"
-    restart: always
-
-  phpmyadmin:
-    image: phpmyadmin/phpmyadmin
-    container_name: fradmin-pma
+      context: ./
+    ports:
+      - 80:80
+    links:
+      - mysql
     depends_on:
       - mysql
+    networks:
+      - backend
     environment:
-      - PMA_HOST=mysql
-      - PMA_USER=root
-      - PMA_PASSWORD=password
-    ports:
-      - "9200:80"
+      - DB_HOST=mysql
+      - DB_PORT=${MYSQL_PORT}
+      - DB_DATABASE=${MYSQL_DATABASE}
+      - DB_USERNAME=${MYSQL_USER}
+      - DB_PASSWORD=${MYSQL_PASSWORD}
 
-  radius:
-    image: freeradius/freeradius-server:3.0.17
-    container_name: fradmin-radius
-    depends_on:
-      - mysql
-    ports:
-     - "1812:1812"
-     - "1813:1813"
-    volumes:
-    - "./freeradius/config/freeradius:/etc/freeradius"
-    - "./freeradius/logs:/var/log/freeradius"
+volumes:
+  mysql-volume:
 
-    restart: always
-    #tty: true
+networks:
+  backend:
+    ipam:
+      config:
+        - subnet: 172.16.0.0/16
 
-  radtest:
-    build: ./radtest
-    container_name: fradmin-radtest
-    depends_on:
-      - radius
-    restart: always
-    tty: true
